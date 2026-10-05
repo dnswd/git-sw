@@ -101,6 +101,7 @@ type model struct {
 	height       int
 	sortMode     SortMode
 	selectedName string
+	quitting     bool
 }
 
 func initialModel(branches []Branch) model {
@@ -112,6 +113,7 @@ func initialModel(branches []Branch) model {
 		branches:  branches,
 		textInput: ti,
 		sortMode:  SortCheckout,
+		quitting:  false,
 	}
 	m.sortBranches()
 	return m
@@ -223,6 +225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "esc":
+			m.quitting = true
 			return m, tea.Quit
 		case "tab":
 			if m.sortMode == SortCheckout {
@@ -245,11 +248,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.filtered) > 0 {
 				m.selectedName = m.filtered[m.cursor].Name
 			}
+			m.quitting = true
 			return m, tea.Quit
 		}
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	}
+
+	if len(m.filtered) > 0 {
+		m.textInput.Placeholder = m.filtered[m.cursor].Name
+	} else {
+		m.textInput.Placeholder = "Search branches..."
 	}
 
 	m.textInput, cmd = m.textInput.Update(msg)
@@ -323,6 +333,10 @@ func truncate(s string, max int) string {
 }
 
 func (m model) View() string {
+	if m.quitting {
+		return ""
+	}
+
 	s := strings.Builder{}
 	s.WriteString(m.textInput.View())
 	s.WriteString("\n\n")
@@ -357,18 +371,35 @@ func (m model) View() string {
 		}
 	}
 
-	// Layout dimensions
-	nameWidth := 20
-	timeWidth := 15
-	hashWidth := 9
-	authorWidth := 15
+	// Dynamic layout dimensions
+	maxNameWidth := 0
+	hashWidth := 7
+	for i := start; i < end; i++ {
+		if len(m.filtered[i].Name) > maxNameWidth {
+			maxNameWidth = len(m.filtered[i].Name)
+		}
+		if len(m.filtered[i].Hash) > hashWidth {
+			hashWidth = len(m.filtered[i].Hash)
+		}
+	}
 
 	availWidth := m.width
 	if availWidth == 0 {
 		availWidth = 80 // fallback
 	}
 
-	subjectWidth := availWidth - nameWidth - timeWidth - hashWidth - authorWidth - 10
+	nameWidth := maxNameWidth
+	if nameWidth > availWidth/2 { // Most generous column, but cap at 50%
+		nameWidth = availWidth / 2
+	}
+	if nameWidth < 20 {
+		nameWidth = 20
+	}
+
+	timeWidth := 15
+	authorWidth := 15
+
+	subjectWidth := availWidth - nameWidth - timeWidth - hashWidth - authorWidth - 6
 	if subjectWidth < 10 {
 		subjectWidth = 10
 	}
